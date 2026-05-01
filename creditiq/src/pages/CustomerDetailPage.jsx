@@ -357,13 +357,19 @@ const IMPACT_STYLES = {
 };
 
 const SIGNAL_TYPE_COLORS = {
-  Management:   'bg-purple-50 text-purple-700',
-  Regulatory:   'bg-blue-50   text-blue-700',
-  Product:      'bg-cyan-50   text-cyan-700',
-  Financial:    'bg-amber-50  text-amber-700',
-  Legal:        'bg-red-50    text-red-700',
-  Operational:  'bg-orange-50 text-orange-700',
-  Market:       'bg-teal-50   text-teal-700',
+  'Management Disturbance': 'bg-purple-50  text-purple-700',
+  'Product Recall':         'bg-red-50     text-red-700',
+  'Regulatory Action':      'bg-blue-50    text-blue-700',
+  'Product Failure':        'bg-orange-50  text-orange-700',
+  'Customer Loss':          'bg-yellow-50  text-yellow-700',
+  'Investment Risk':        'bg-cyan-50    text-cyan-700',
+  'Legal Exposure':         'bg-rose-50    text-rose-700',
+  // fallback for old-format signals
+  Management:               'bg-purple-50  text-purple-700',
+  Regulatory:               'bg-blue-50    text-blue-700',
+  Product:                  'bg-orange-50  text-orange-700',
+  Legal:                    'bg-rose-50    text-rose-700',
+  Operational:              'bg-amber-50   text-amber-700',
 };
 
 function NewsSentimentCard({ sentimentData }) {
@@ -417,17 +423,25 @@ function NewsSentimentCard({ sentimentData }) {
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Signals</p>
           <ul className="flex flex-col gap-2">
             {signals.map((sig, i) => (
-              <li key={i} className="border border-gray-100 rounded-lg p-3 flex flex-col gap-1.5">
+              <li key={i} className="border border-gray-100 rounded-lg p-3 flex flex-col gap-2">
+                {/* Row 1: type badge + impact badge + date */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${SIGNAL_TYPE_COLORS[sig.type] ?? 'bg-gray-50 text-gray-600'}`}>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${SIGNAL_TYPE_COLORS[sig.type] ?? 'bg-gray-50 text-gray-600'}`}>
                     {sig.type}
                   </span>
-                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded border ${IMPACT_STYLES[sig.impact] ?? IMPACT_STYLES.Neutral}`}>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${IMPACT_STYLES[sig.impact] ?? IMPACT_STYLES.Neutral}`}>
                     {sig.impact}
                   </span>
-                  <span className="text-xs text-gray-400 ml-auto">{sig.date}</span>
+                  <span className="text-xs text-gray-400 ml-auto shrink-0">{sig.date}</span>
                 </div>
-                <p className="text-xs text-gray-700 leading-snug">{sig.headline}</p>
+                {/* Row 2: headline */}
+                <p className="text-sm font-medium text-gray-800 leading-snug">{sig.headline}</p>
+                {/* Row 3: credit impact */}
+                {sig.creditImpact && (
+                  <p className="text-xs text-gray-500 leading-snug border-l-2 border-gray-200 pl-2 italic">
+                    {sig.creditImpact}
+                  </p>
+                )}
               </li>
             ))}
           </ul>

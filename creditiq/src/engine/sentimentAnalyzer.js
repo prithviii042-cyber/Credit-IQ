@@ -1,10 +1,24 @@
 const MODEL = 'claude-haiku-4-5';
 
-const SYSTEM_PROMPT = `You are a financial news intelligence system for a credit risk platform.
-Generate a realistic news sentiment assessment based on a company's financial profile.
-The signals you generate MUST be consistent with the financial health data provided:
-- Distressed companies (high DSO, negative EBITDA, high debt, overdue payments) → concerning signals
-- Healthy companies (low DSO, positive EBITDA, low debt) → stable/positive signals
+const SYSTEM_PROMPT = `You are a credit risk intelligence analyst specialising in external news events.
+
+Your job: identify real-world events that could IMPAIR a company's revenue or liquidity and therefore reduce its ability to meet payment obligations. You are NOT summarising financial ratios — those are already captured elsewhere. You are looking for NEWS EVENTS in these specific categories:
+
+• Management Disturbance — CEO/CFO/founder exits, boardroom conflicts, key person departures, succession gaps, insider selling
+• Product Recall — mandatory or voluntary recalls due to safety defects, quality failures, contamination
+• Regulatory Action — fines, license suspensions, government investigations, compliance failures, import/export bans
+• Product Failure — widespread defects, mass returns, quality rejections by anchor customers, production halts
+• Customer Loss — departure of major clients, contract cancellations, public dissatisfaction campaigns, tender losses
+• Investment Risk — failed acquisitions, large write-offs, impaired assets, aggressive debt-funded expansion
+• Legal Exposure — class action suits, fraud allegations, IP disputes, criminal probes
+
+For each signal, explain the CREDIT CONSEQUENCE: how does this event threaten revenue streams, freeze liquidity, or directly reduce payment capacity?
+
+Score calibration — use the company's financial risk tier as a baseline, then adjust for severity of events:
+- Severe external events on an already-stressed company → push score down further
+- Positive stability signals on a healthy company → reinforce high score
+- A single severe event (product recall, CEO fraud) can independently drop a healthy company to Cautionary
+
 Always respond with valid JSON only. No markdown. No explanations.`;
 
 function buildPrompt(row) {
@@ -15,29 +29,42 @@ function buildPrompt(row) {
     dnbData,
   } = row;
 
-  // Derive a simple risk tier from raw financials (flags not available yet at this pipeline stage)
   const riskTier =
     (overdue_pct > 50 || dso > 120 || ebitda_pct < 0) ? 'CRITICAL' :
     (overdue_pct > 30 || dso > 90  || debt_equity > 3) ? 'HIGH' :
     (overdue_pct > 15 || dso > 60  || debt_equity > 2) ? 'MODERATE' : 'LOW';
 
   const dnbLine = dnbData
-    ? `D&B: PAYDEX ${dnbData.paydex?.score} | Fin. Stress: ${dnbData.financialStressScore?.riskLevel} | DBT: ${dnbData.dbt?.value}d`
+    ? `D&B: PAYDEX ${dnbData.paydex?.score} | Stress: ${dnbData.financialStressScore?.riskLevel} | DBT: ${dnbData.dbt?.value}d`
     : 'D&B: Not available';
 
-  return `Generate a news sentiment assessment for this company.
+  return `Generate a credit risk news intelligence report for this company.
 
 Company: ${company_name}
-Industry: ${industry} | City Tier: ${city_tier}
-Revenue: ₹${revenue_cr} Cr | EBITDA Margin: ${ebitda_pct}% | Debt/Equity: ${debt_equity}
-DSO: ${dso}d | Overdue: ${overdue_pct}% | Risk Tier: ${riskTier}
+Sector: ${industry} | City Tier: ${city_tier}
+Revenue: ₹${revenue_cr} Cr | EBITDA: ${ebitda_pct}% | D/E: ${debt_equity}
+DSO: ${dso}d | Overdue: ${overdue_pct}% | Financial Risk Tier: ${riskTier}
 ${dnbLine}
 
-Scoring guide (follow strictly based on Risk Tier):
-- CRITICAL → verdict "Critical" or "At Risk",   score 5–35,  3 negative/severe signals
-- HIGH     → verdict "At Risk" or "Cautionary",  score 20–50, 2-3 negative signals
+Select 2–4 of the most credit-relevant signal types for this company given its sector and risk tier:
+- Management Disturbance (leadership gaps → execution risk → revenue slippage)
+- Product Recall (recall costs + lost sales → sudden liquidity drain)
+- Regulatory Action (fines/shutdowns → direct cash outflow + revenue disruption)
+- Product Failure (quality issues → customer attrition + returns → revenue erosion)
+- Customer Loss (anchor client departure → revenue cliff → DSO deterioration)
+- Investment Risk (bad M&A or write-offs → balance sheet stress → borrowing pressure)
+- Legal Exposure (litigation → contingent liability → liquidity freeze)
+
+Score guide:
+- CRITICAL → verdict "Critical" or "At Risk",    score 5–35,  2–3 Severe signals
+- HIGH     → verdict "At Risk" or "Cautionary",  score 20–50, 2 Negative signals
 - MODERATE → verdict "Cautionary" or "Watchlist",score 45–65, mixed signals
-- LOW      → verdict "Watchlist" or "Stable",    score 65–90, mostly neutral/positive signals
+- LOW      → verdict "Watchlist" or "Stable",    score 65–90, 1–2 Neutral/Positive signals
+
+Rules for headlines:
+- Name the company explicitly in every headline
+- Be specific (name the product, regulator, client sector, or deal where relevant)
+- Max 90 characters per headline
 
 Respond ONLY with valid JSON:
 {
@@ -45,13 +72,14 @@ Respond ONLY with valid JSON:
   "verdict": "<Stable|Watchlist|Cautionary|At Risk|Critical>",
   "signals": [
     {
-      "type": "<Management|Regulatory|Product|Financial|Legal|Operational|Market>",
-      "headline": "<realistic news headline, max 90 characters>",
+      "type": "<Management Disturbance|Product Recall|Regulatory Action|Product Failure|Customer Loss|Investment Risk|Legal Exposure>",
+      "headline": "<specific news headline, max 90 chars>",
+      "creditImpact": "<one sentence: exactly how this threatens revenue, liquidity, or payment capacity>",
       "impact": "<Positive|Neutral|Negative|Severe>",
       "date": "<e.g. '2 weeks ago', '3 months ago'>"
     }
   ],
-  "summary": "<2–3 sentence credit analyst commentary on this company's public news environment>"
+  "summary": "<2–3 sentence credit analyst commentary focused on payment risk, not just financial health>"
 }`;
 }
 
@@ -78,7 +106,7 @@ export async function analyzeSentiment(row) {
       },
       body: JSON.stringify({
         model:      MODEL,
-        max_tokens: 800,
+        max_tokens: 1000,
         system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: buildPrompt(row) }],
       }),
