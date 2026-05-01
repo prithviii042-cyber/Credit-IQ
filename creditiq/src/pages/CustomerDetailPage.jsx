@@ -49,62 +49,67 @@ const fmtLac = (n) => `₹${(n / 1_00_000).toFixed(1)}L`;
 // ─── ScoreGauge ───────────────────────────────────────────────────────────────
 
 function ScoreGauge({ score, rating }) {
-  const r  = 82;
-  const cx = 110;
-  const cy = 105;
-  const sw = 15;
-
-  const color     = RATING_COLORS[rating] ?? '#6b7280';
-  const trackPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx + r} ${cy}`;
-
-  let valuePath = '';
-  if (score >= 100) {
-    valuePath = trackPath;
-  } else if (score > 0) {
-    // angle in standard math coords: 180° at left, 0° at right
-    const angle = (180 - score * 1.8) * (Math.PI / 180);
-    const ex    = cx + r * Math.cos(angle);
-    const ey    = cy - r * Math.sin(angle);
-    valuePath   = `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${ex.toFixed(2)} ${ey.toFixed(2)}`;
-  }
+  const r     = 58;
+  const cx    = 80;
+  const cy    = 80;
+  const sw    = 13;
+  const circ  = 2 * Math.PI * r;
+  const fill  = Math.min(1, Math.max(0, score / 100)) * circ;
+  const color = RATING_COLORS[rating] ?? '#6b7280';
+  const label = { A: 'Low Risk', B: 'Moderate Risk', C: 'High Risk', D: 'Very High Risk' }[rating] ?? '';
 
   return (
-    <div style={{ width: 220, height: 132, flexShrink: 0 }}>
-      <svg viewBox="0 0 220 132" width="220" height="132">
+    <div className="flex flex-col items-center gap-1">
+      <svg viewBox="0 0 160 160" width="160" height="160">
+        {/* Subtle tick marks at 25/50/75 */}
+        {[0, 25, 50, 75, 100].map((pct) => {
+          const angle = -90 + (pct / 100) * 360;
+          const rad   = (angle * Math.PI) / 180;
+          const x1    = cx + (r + 8)  * Math.cos(rad);
+          const y1    = cy + (r + 8)  * Math.sin(rad);
+          const x2    = cx + (r + 14) * Math.cos(rad);
+          const y2    = cy + (r + 14) * Math.sin(rad);
+          return <line key={pct} x1={x1.toFixed(1)} y1={y1.toFixed(1)} x2={x2.toFixed(1)} y2={y2.toFixed(1)} stroke="#e5e7eb" strokeWidth="1.5" strokeLinecap="round" />;
+        })}
+
         {/* Track */}
-        <path d={trackPath} fill="none" stroke="#f3f4f6" strokeWidth={sw} strokeLinecap="round" />
-        {/* Value */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f3f4f6" strokeWidth={sw} />
+
+        {/* Progress arc — starts at 12 o'clock, goes clockwise */}
         {score > 0 && (
-          <path d={valuePath} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" />
+          <circle
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth={sw}
+            strokeDasharray={`${fill.toFixed(2)} ${circ.toFixed(2)}`}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${cx} ${cy})`}
+          />
         )}
+
         {/* Rating letter */}
-        <text
-          x={cx} y={cy - 4}
+        <text x={cx} y={cy - 6}
           textAnchor="middle" dominantBaseline="auto"
-          fontSize="52" fontWeight="700" fill={color}
+          fontSize="46" fontWeight="800" fill={color}
           fontFamily="Inter, ui-sans-serif, sans-serif"
         >
           {rating}
         </text>
+
         {/* Numeric score */}
-        <text
-          x={cx} y={cy + 22}
+        <text x={cx} y={cy + 17}
           textAnchor="middle"
-          fontSize="17" fontWeight="600" fill="#374151"
+          fontSize="14" fontWeight="600" fill="#374151"
           fontFamily="Inter, ui-sans-serif, sans-serif"
         >
           {score.toFixed(1)} / 100
         </text>
-        {/* Label */}
-        <text
-          x={cx} y={cy + 40}
-          textAnchor="middle"
-          fontSize="11" fill="#9ca3af"
-          fontFamily="Inter, ui-sans-serif, sans-serif"
-        >
-          Credit Score
-        </text>
       </svg>
+
+      <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ backgroundColor: color + '20', color }}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -875,60 +880,86 @@ export default function CustomerDetailPage() {
 
         {/* ── SECTION 1: Header ─────────────────────────────────────────────── */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <div className="flex items-start justify-between gap-6 flex-wrap">
-            {/* Left: customer info */}
-            <div className="flex flex-col gap-3 min-w-0">
+          <div className="flex items-start gap-8">
+
+            {/* Left: identity + flags + KPIs */}
+            <div className="flex-1 min-w-0 flex flex-col gap-4">
+
+              {/* Name + ID + tags */}
               <div>
-                <h1 className="text-xl font-semibold text-gray-900 leading-tight">{customer.company_name}</h1>
-                <p className="text-sm text-gray-400 mt-0.5">{customer.customer_id}</p>
+                <div className="flex items-start gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <h1 className="text-2xl font-bold text-gray-900 leading-tight">{customer.company_name}</h1>
+                    <p className="text-sm text-gray-400 mt-0.5">{customer.customer_id}</p>
+                  </div>
+                  {flags?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 shrink-0">
+                      {flags.map((f) => (
+                        <span
+                          key={f}
+                          className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full border"
+                          style={
+                            ['IMMEDIATE_HOLD', 'SEVERE_OVERDUE', 'OVER_LIMIT'].includes(f)
+                              ? { backgroundColor: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }
+                              : { backgroundColor: '#fffbeb', color: '#d97706', borderColor: '#fde68a' }
+                          }
+                        >
+                          {['IMMEDIATE_HOLD', 'SEVERE_OVERDUE', 'OVER_LIMIT'].includes(f) ? '🔴' : '🟡'}
+                          {f.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Meta row */}
+                <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
+                  {[
+                    { label: 'Industry',   value: customer.industry },
+                    { label: 'City Tier',  value: `Tier ${customer.city_tier}` },
+                    { label: 'Tenure',     value: `${customer.tenure_years} yrs` },
+                    { label: 'D&B Rating', value: dnbData?.dnbRating?.raw ?? '—' },
+                    { label: 'D&B Report', value: dnbData?.reportDate ?? '—' },
+                  ].map(({ label, value }) => (
+                    <div key={label}>
+                      <p className="text-xs text-gray-400">{label}</p>
+                      <p className="text-sm font-semibold text-gray-800">{value}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {/* Financial KPIs strip */}
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 pt-4 border-t border-gray-100">
                 {[
-                  { label: 'Industry',    value: customer.industry },
-                  { label: 'D&B Rating',  value: dnbData?.dnbRating?.raw
-                      ? `${dnbData.dnbRating.raw} — ${dnbData.dnbRating.description}`
-                      : '—' },
-                  { label: 'Tenure',      value: `${customer.tenure_years} years` },
-                  { label: 'D&B Report',  value: dnbData?.reportDate ?? '—' },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <p className="text-xs text-gray-400">{label}</p>
-                    <p className="text-sm font-medium text-gray-800">{value}</p>
+                  { label: 'Revenue',      value: `₹${customer.revenue_cr}Cr`,
+                    sub: null },
+                  { label: 'EBITDA Margin',value: `${customer.ebitda_pct}%`,
+                    bad: customer.ebitda_pct < 0 },
+                  { label: 'Debt / Equity',value: `${customer.debt_equity}x`,
+                    bad: customer.debt_equity > 2 },
+                  { label: 'DSO',          value: `${customer.dso}d`,
+                    bad: customer.dso > 90 },
+                  { label: 'Outstanding',  value: fmtInr(customer.outstanding),
+                    sub: null },
+                  { label: 'Utilization',  value: customer.credit_limit > 0
+                      ? `${((customer.outstanding / customer.credit_limit) * 100).toFixed(0)}%`
+                      : '—',
+                    bad: customer.credit_limit > 0 && customer.outstanding > customer.credit_limit * 0.9 },
+                ].map(({ label, value, bad }) => (
+                  <div key={label} className="bg-gray-50 rounded-lg px-3 py-2.5">
+                    <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+                    <p className={`text-sm font-bold tabular-nums ${bad ? 'text-red-600' : 'text-gray-900'}`}>
+                      {value}
+                    </p>
                   </div>
                 ))}
               </div>
-
-              {/* Flags row */}
-              {flags?.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {flags.map((f) => (
-                    <span
-                      key={f}
-                      className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border"
-                      style={
-                        ['IMMEDIATE_HOLD', 'SEVERE_OVERDUE', 'OVER_LIMIT'].includes(f)
-                          ? { backgroundColor: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }
-                          : { backgroundColor: '#fffbeb', color: '#d97706', borderColor: '#fde68a' }
-                      }
-                    >
-                      {['IMMEDIATE_HOLD', 'SEVERE_OVERDUE', 'OVER_LIMIT'].includes(f) ? '🔴' : '🟡'}
-                      {f.replace(/_/g, ' ')}
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Right: gauge */}
-            <div className="flex flex-col items-center shrink-0">
+            <div className="shrink-0">
               <ScoreGauge score={finalScore} rating={rating} />
-              <p className="text-xs font-medium mt-1" style={{ color: ratingColor }}>
-                {rating === 'A' ? 'Low Risk'
-                  : rating === 'B' ? 'Moderate Risk'
-                  : rating === 'C' ? 'High Risk'
-                  : 'Very High Risk'}
-              </p>
             </div>
           </div>
         </div>
