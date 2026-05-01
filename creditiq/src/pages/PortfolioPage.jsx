@@ -71,8 +71,8 @@ function exportCsv(rows) {
     'dso', 'overdue_pct',
     'bucket_30', 'bucket_60', 'bucket_90', 'bucket_90plus', 'bucket_120plus',
     'final_score', 'rating', 'flags',
-    'dim_payment', 'dim_financial', 'dim_exposure', 'dim_tenure', 'dim_external', 'dim_dnb',
-    'paydex',
+    'dim_payment', 'dim_financial', 'dim_exposure', 'dim_tenure', 'dim_external', 'dim_dnb', 'dim_sentiment',
+    'sentiment_verdict', 'sentiment_score',
   ];
 
   const esc = (v) => {
@@ -100,7 +100,9 @@ function exportCsv(rows) {
         c.dimensions?.tenure?.toFixed(2)    ?? '',
         c.dimensions?.external?.toFixed(2)  ?? '',
         c.dimensions?.dnb != null ? c.dimensions.dnb.toFixed(2) : '',
-        c.dnbData?.paydex?.score ?? '',
+        c.dimensions?.sentiment != null ? c.dimensions.sentiment.toFixed(2) : '',
+        c.sentimentData?.verdict ?? '',
+        c.sentimentData?.score ?? '',
       ].map(esc).join(',');
     }),
   ];
@@ -239,6 +241,14 @@ function RiskSummaryPanel({ rows }) {
     </div>
   );
 }
+
+const VERDICT_PILL = {
+  'Stable':     'bg-green-100  text-green-700',
+  'Watchlist':  'bg-yellow-100 text-yellow-700',
+  'Cautionary': 'bg-orange-100 text-orange-700',
+  'At Risk':    'bg-red-100    text-red-700',
+  'Critical':   'bg-rose-100   text-rose-700',
+};
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -551,7 +561,8 @@ export default function PortfolioPage() {
                     { label: 'Util %',       align: 'right',  field: null          },
                     { label: 'DSO',          align: 'right',  field: 'dso'         },
                     { label: 'Ovd %',        align: 'right',  field: null          },
-                    { label: 'PAYDEX',       align: 'right',  field: null          },
+                    { label: 'D&B Score',    align: 'right',  field: null          },
+                    { label: 'Sentiment',    align: 'left',   field: null          },
                     { label: 'Aging Mix',    align: 'left',   field: null          },
                     { label: 'Flags',        align: 'left',   field: null          },
                     { label: '',             align: 'left',   field: null          },
@@ -575,7 +586,7 @@ export default function PortfolioPage() {
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="px-4 py-16 text-center text-sm text-gray-400">
+                    <td colSpan={14} className="px-4 py-16 text-center text-sm text-gray-400">
                       No customers match the current filters.
                     </td>
                   </tr>
@@ -584,7 +595,8 @@ export default function PortfolioPage() {
                     const util = c.credit_limit > 0
                       ? ((c.outstanding / c.credit_limit) * 100).toFixed(1)
                       : null;
-                    const paydex = c.dnbData?.paydex?.score ?? '—';
+                    const dnbScore = c.dimensions?.dnb != null ? c.dimensions.dnb.toFixed(0) : '—';
+                    const sentiment = c.sentimentData && !c.sentimentData.error ? c.sentimentData : null;
 
                     return (
                       <tr
@@ -639,9 +651,23 @@ export default function PortfolioPage() {
                           {c.overdue_pct}%
                         </td>
 
-                        {/* PAYDEX */}
+                        {/* D&B Score */}
                         <td className="px-4 py-3 text-right tabular-nums text-xs text-gray-600">
-                          {paydex}
+                          {dnbScore}
+                        </td>
+
+                        {/* Sentiment */}
+                        <td className="px-4 py-3">
+                          {sentiment ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${VERDICT_PILL[sentiment.verdict] ?? 'bg-gray-100 text-gray-600'}`}>
+                                {sentiment.verdict}
+                              </span>
+                              <span className="text-xs tabular-nums text-gray-400">{sentiment.score}</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-200 text-xs">—</span>
+                          )}
                         </td>
 
                         {/* Aging mini bar */}
