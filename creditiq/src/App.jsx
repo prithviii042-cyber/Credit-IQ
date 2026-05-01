@@ -1,21 +1,24 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AppProvider } from './context/AppContext';
 import Navbar from './components/Navbar';
-import Upload from './pages/Upload';
+import UploadPage from './pages/UploadPage';
 import Portfolio from './pages/Portfolio';
 import CustomerDetail from './pages/CustomerDetail';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        <Navbar />
-        <Routes>
-          <Route path="/" element={<Navigate to="/upload" replace />} />
-          <Route path="/upload" element={<Upload />} />
-          <Route path="/portfolio" element={<Portfolio />} />
-          <Route path="/customer" element={<CustomerDetail />} />
-        </Routes>
-      </div>
-    </BrowserRouter>
+    <AppProvider>
+      <BrowserRouter>
+        <div className="min-h-screen flex flex-col bg-gray-50">
+          <Navbar />
+          <Routes>
+            <Route path="/" element={<Navigate to="/upload" replace />} />
+            <Route path="/upload" element={<UploadPage />} />
+            <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="/customer/:id" element={<CustomerDetail />} />
+          </Routes>
+        </div>
+      </BrowserRouter>
+    </AppProvider>
   );
 }
