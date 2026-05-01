@@ -119,7 +119,6 @@ function exportCsv(rows) {
 // ─── Risk Summary Panel ───────────────────────────────────────────────────────
 
 const RATING_FILL = { A: '#16a34a', B: '#ca8a04', C: '#ea580c', D: '#dc2626' };
-const RATING_LABELS = { A: 'Low Risk', B: 'Moderate', C: 'High Risk', D: 'Very High' };
 
 function RiskSummaryPanel({ rows }) {
   const byRating = useMemo(() => {
@@ -173,12 +172,12 @@ function RiskSummaryPanel({ rows }) {
         <div>
           <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">Customers by Rating</p>
           <div className="flex items-center gap-4">
-            <ResponsiveContainer width={160} height={160}>
-              <PieChart>
+            <div className="shrink-0">
+              <PieChart width={160} height={160}>
                 <Pie
                   data={pieData}
-                  cx="50%"
-                  cy="50%"
+                  cx={80}
+                  cy={80}
                   innerRadius={42}
                   outerRadius={68}
                   dataKey="value"
@@ -192,7 +191,7 @@ function RiskSummaryPanel({ rows }) {
                 </Pie>
                 <Tooltip content={pieTooltip} />
               </PieChart>
-            </ResponsiveContainer>
+            </div>
             <div className="flex flex-col gap-2">
               {['A', 'B', 'C', 'D'].map((r) => {
                 const { count } = byRating[r];
@@ -292,13 +291,13 @@ function AgingBar({ customer }) {
 
   return (
     <BarChart
-      width={100}
-      height={10}
+      width={120}
+      height={20}
       data={data}
       layout="vertical"
       margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
       barCategoryGap="0%"
-      barSize={10}
+      barSize={20}
     >
       <XAxis type="number" hide domain={[0, outstanding || 1]} />
       <YAxis type="category" dataKey="name" hide />
@@ -443,90 +442,97 @@ export default function PortfolioPage() {
         </div>
 
         {/* Filter bar */}
-        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center gap-3">
-          {/* Search */}
-          <div className="relative min-w-52 flex-1">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <input
-              type="text"
-              placeholder="Search by name or ID…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-2 flex-wrap">
+
+          {/* Left group: search + filters + sort */}
+          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            {/* Search */}
+            <div className="relative min-w-44 max-w-56 flex-1">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Rating pills */}
+            <div className="flex items-center gap-1 shrink-0">
+              {['All', 'A', 'B', 'C', 'D'].map((r) => {
+                const active = ratingFilter === r;
+                const rStyle = RATING_STYLES[r]?.pill;
+                return (
+                  <button
+                    key={r}
+                    onClick={() => setRatingFilter(r)}
+                    className={[
+                      'px-2.5 py-1 text-xs font-medium rounded-md border transition-colors',
+                      active
+                        ? r === 'All'
+                          ? 'bg-gray-900 text-white border-gray-900'
+                          : `${rStyle} border-transparent`
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700',
+                    ].join(' ')}
+                  >
+                    {r}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Industry */}
+            <select
+              value={industryFilter}
+              onChange={(e) => setIndustryFilter(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shrink-0"
+            >
+              {industries.map((ind) => (
+                <option key={ind} value={ind}>{ind === 'All' ? 'All Industries' : ind}</option>
+              ))}
+            </select>
+
+            {/* Sort + direction */}
+            <div className="flex items-center gap-1 shrink-0">
+              <select
+                value={sortBy}
+                onChange={(e) => { setSortBy(e.target.value); setSortDir(SORT_DEFAULT_DIR[e.target.value] ?? 'desc'); }}
+                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="score">Score</option>
+                <option value="rating">Rating</option>
+                <option value="dso">DSO</option>
+                <option value="outstanding">Outstanding</option>
+              </select>
+              <button
+                onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                title={sortDir === 'asc' ? 'Descending' : 'Ascending'}
+                className="w-8 h-8 flex items-center justify-center text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                {sortDir === 'asc' ? '↑' : '↓'}
+              </button>
+            </div>
           </div>
 
-          {/* Rating pills */}
-          <div className="flex items-center gap-1">
-            {['All', 'A', 'B', 'C', 'D'].map((r) => {
-              const active = ratingFilter === r;
-              const rStyle = RATING_STYLES[r]?.pill;
-              return (
-                <button
-                  key={r}
-                  onClick={() => setRatingFilter(r)}
-                  className={[
-                    'px-2.5 py-1 text-xs font-medium rounded-md border transition-colors',
-                    active
-                      ? r === 'All'
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : `${rStyle} border-transparent`
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700',
-                  ].join(' ')}
-                >
-                  {r === 'All' ? 'All' : `${r}`}
-                </button>
-              );
-            })}
+          {/* Right group: count + export — always stay together */}
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+            <span className="text-xs text-gray-400 tabular-nums whitespace-nowrap">
+              {rows.length} / {portfolio.length}
+            </span>
+            <button
+              onClick={() => exportCsv(rows)}
+              title="Export current view as CSV"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:text-gray-800 transition-colors whitespace-nowrap"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Export CSV
+            </button>
           </div>
-
-          {/* Industry */}
-          <select
-            value={industryFilter}
-            onChange={(e) => setIndustryFilter(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-          >
-            {industries.map((ind) => (
-              <option key={ind} value={ind}>{ind === 'All' ? 'All Industries' : ind}</option>
-            ))}
-          </select>
-
-          {/* Sort */}
-          <select
-            value={sortBy}
-            onChange={(e) => { setSortBy(e.target.value); setSortDir(SORT_DEFAULT_DIR[e.target.value] ?? 'desc'); }}
-            className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-          >
-            <option value="score">Sort: Score</option>
-            <option value="rating">Sort: Rating</option>
-            <option value="dso">Sort: DSO</option>
-            <option value="outstanding">Sort: Outstanding</option>
-          </select>
-
-          <button
-            onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-            title={sortDir === 'asc' ? 'Switch to descending' : 'Switch to ascending'}
-            className="w-8 h-8 flex items-center justify-center text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            {sortDir === 'asc' ? '↑' : '↓'}
-          </button>
-
-          <span className="text-xs text-gray-400 ml-auto tabular-nums">
-            {rows.length} / {portfolio.length}
-          </span>
-
-          <button
-            onClick={() => exportCsv(rows)}
-            title="Export current view as CSV"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:text-gray-800 transition-colors whitespace-nowrap"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-            Export CSV
-          </button>
         </div>
 
         {/* Table */}

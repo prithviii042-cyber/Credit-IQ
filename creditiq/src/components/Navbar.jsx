@@ -49,12 +49,11 @@ export default function Navbar() {
         {/* Portfolio Health badge */}
         {health && colors && (
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-gray-400 font-medium">Portfolio Health</span>
+            <span className="text-xs text-gray-400 font-medium hidden sm:block">Portfolio Health</span>
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${colors.bg} ${colors.text}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
               {health.label}
             </span>
-            <span className="text-xs text-gray-400 tabular-nums">{health.score.toFixed(1)}</span>
           </div>
         )}
       </div>

@@ -39,10 +39,7 @@ const AGING_SEGMENTS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtLac   = (n) => `₹${(n / 100_000).toFixed(1)}L`;
-const fmtCr    = (n) => (n / 100_000) >= 10_000
-  ? `₹${(n / 10_000_000).toFixed(1)} Cr`
-  : fmtLac(n);
+const fmtLac = (n) => `₹${(n / 1_00_000).toFixed(1)}L`;
 
 // ─── ScoreGauge ───────────────────────────────────────────────────────────────
 
@@ -315,11 +312,11 @@ function AgingBarChart({ customer }) {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
           <YAxis
-            tickFormatter={(v) => fmtInr(v)}
+            tickFormatter={(v) => fmtLac(v)}
             axisLine={false}
             tickLine={false}
             tick={{ fontSize: 11, fill: '#9ca3af' }}
-            width={52}
+            width={62}
           />
           <Tooltip
             formatter={tooltipFormatter}
