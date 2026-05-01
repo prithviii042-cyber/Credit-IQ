@@ -7,6 +7,10 @@ import {
 import { useApp } from '../context/AppContext';
 import { generateCreditMemo } from '../engine/creditMemoGenerator';
 import { fmtInr } from '../utils/format';
+import {
+  normalizePaydex, normalizeFSS, normalizeDelinquency,
+  normalizeFailure, normalizeDBT, normalizeDnBRating,
+} from '../engine/scoringEngine';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -65,41 +69,43 @@ function ScoreGauge({ score, rating }) {
   }
 
   return (
-    <svg viewBox="0 0 220 132" className="w-full max-w-[260px]">
-      {/* Track */}
-      <path d={trackPath} fill="none" stroke="#f3f4f6" strokeWidth={sw} strokeLinecap="round" />
-      {/* Value */}
-      {score > 0 && (
-        <path d={valuePath} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" />
-      )}
-      {/* Rating letter */}
-      <text
-        x={cx} y={cy - 4}
-        textAnchor="middle" dominantBaseline="auto"
-        fontSize="52" fontWeight="700" fill={color}
-        fontFamily="Inter, ui-sans-serif, sans-serif"
-      >
-        {rating}
-      </text>
-      {/* Numeric score */}
-      <text
-        x={cx} y={cy + 22}
-        textAnchor="middle"
-        fontSize="17" fontWeight="600" fill="#374151"
-        fontFamily="Inter, ui-sans-serif, sans-serif"
-      >
-        {score.toFixed(1)} / 100
-      </text>
-      {/* Label */}
-      <text
-        x={cx} y={cy + 40}
-        textAnchor="middle"
-        fontSize="11" fill="#9ca3af"
-        fontFamily="Inter, ui-sans-serif, sans-serif"
-      >
-        Credit Score
-      </text>
-    </svg>
+    <div style={{ width: 220, height: 132, flexShrink: 0 }}>
+      <svg viewBox="0 0 220 132" width="220" height="132">
+        {/* Track */}
+        <path d={trackPath} fill="none" stroke="#f3f4f6" strokeWidth={sw} strokeLinecap="round" />
+        {/* Value */}
+        {score > 0 && (
+          <path d={valuePath} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" />
+        )}
+        {/* Rating letter */}
+        <text
+          x={cx} y={cy - 4}
+          textAnchor="middle" dominantBaseline="auto"
+          fontSize="52" fontWeight="700" fill={color}
+          fontFamily="Inter, ui-sans-serif, sans-serif"
+        >
+          {rating}
+        </text>
+        {/* Numeric score */}
+        <text
+          x={cx} y={cy + 22}
+          textAnchor="middle"
+          fontSize="17" fontWeight="600" fill="#374151"
+          fontFamily="Inter, ui-sans-serif, sans-serif"
+        >
+          {score.toFixed(1)} / 100
+        </text>
+        {/* Label */}
+        <text
+          x={cx} y={cy + 40}
+          textAnchor="middle"
+          fontSize="11" fill="#9ca3af"
+          fontFamily="Inter, ui-sans-serif, sans-serif"
+        >
+          Credit Score
+        </text>
+      </svg>
+    </div>
   );
 }
 
@@ -167,6 +173,20 @@ function RiskBadge({ level }) {
   );
 }
 
+function ScoreBar({ norm, color }) {
+  const barColor = norm >= 70 ? '#16a34a' : norm >= 45 ? '#ca8a04' : norm >= 25 ? '#ea580c' : '#dc2626';
+  return (
+    <div className="flex items-center gap-2 flex-1">
+      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-1.5 rounded-full" style={{ width: `${norm}%`, backgroundColor: color ?? barColor }} />
+      </div>
+      <span className="text-xs font-semibold tabular-nums w-6 text-right" style={{ color: color ?? barColor }}>
+        {Math.round(norm)}
+      </span>
+    </div>
+  );
+}
+
 function DnBBureauCard({ dnbData }) {
   if (!dnbData) {
     return (
@@ -179,76 +199,110 @@ function DnBBureauCard({ dnbData }) {
   const { paydex, financialStressScore: fss, delinquencyScore: del,
           failureScore: fail, dbt, dnbRating, tradelines, alerts, reportDate } = dnbData;
 
-  const paydexDelta = paydex.score - paydex.industryMedian;
-  const dbtDelta    = dbt.value - dbt.industryMedian;
+  const paydexNorm      = normalizePaydex(paydex.score);
+  const fssNorm         = normalizeFSS(fss.score);
+  const delNorm         = normalizeDelinquency(del.score);
+  const failNorm        = normalizeFailure(fail.score);
+  const dbtNorm         = normalizeDBT(dbt.value);
+  const ratingNorm      = normalizeDnBRating(dnbRating.raw);
+  const paydexDelta     = paydex.score - paydex.industryMedian;
+  const dbtDelta        = dbt.value - dbt.industryMedian;
+
+  const breakdown = [
+    {
+      label: 'PAYDEX',
+      weight: '30%',
+      raw: `${paydex.score} / 100`,
+      norm: paydexNorm,
+      sub: paydex.paymentBehavior,
+      delta: paydexDelta >= 0 ? `▲ ${paydexDelta} vs industry median` : `▼ ${Math.abs(paydexDelta)} vs industry median`,
+      deltaGood: paydexDelta >= 0,
+    },
+    {
+      label: 'Financial Stress',
+      weight: '20%',
+      raw: `${fss.score}`,
+      norm: fssNorm,
+      sub: fss.riskLevel,
+      delta: `${fss.nationalPercentile}th percentile`,
+      deltaGood: fssNorm >= 50,
+    },
+    {
+      label: 'Delinquency Risk',
+      weight: '20%',
+      raw: `${del.score}`,
+      norm: delNorm,
+      sub: del.probabilityBand,
+      delta: `${del.nationalPercentile}th percentile`,
+      deltaGood: delNorm >= 50,
+    },
+    {
+      label: 'Failure Risk',
+      weight: '15%',
+      raw: `${fail.score}`,
+      norm: failNorm,
+      sub: fail.riskLevel,
+      delta: `${fail.nationalPercentile}th percentile`,
+      deltaGood: failNorm >= 50,
+    },
+    {
+      label: 'Days Beyond Terms',
+      weight: '10%',
+      raw: `${dbt.value}d`,
+      norm: dbtNorm,
+      sub: dbtDelta <= 0
+        ? `▼ ${Math.abs(dbtDelta)}d better than industry (${dbt.industryMedian}d)`
+        : `▲ ${dbtDelta}d worse than industry (${dbt.industryMedian}d)`,
+      deltaGood: dbtDelta <= 0,
+    },
+    {
+      label: 'D&B Rating',
+      weight: '5%',
+      raw: dnbRating.raw,
+      norm: ratingNorm,
+      sub: dnbRating.description,
+      deltaGood: ratingNorm >= 50,
+    },
+  ];
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-4">
+    <div className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col gap-5">
       <h3 className="text-sm font-semibold text-gray-900">D&B Bureau Report</h3>
 
-      {/* PAYDEX */}
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">PAYDEX</p>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-gray-900">{paydex.score}</span>
-            <span className={`text-sm font-semibold ${paydexDelta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {paydexDelta >= 0 ? '▲' : '▼'} {Math.abs(paydexDelta)} vs median
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 mt-0.5 italic">{paydex.paymentBehavior}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-400">Industry median</p>
-          <p className="text-lg font-semibold text-gray-600">{paydex.industryMedian}</p>
-        </div>
-      </div>
-
-      {/* Risk scores */}
-      <div className="grid grid-cols-1 gap-2">
-        {[
-          { label: 'Financial Stress', score: fss.score, level: fss.riskLevel, pctile: fss.nationalPercentile },
-          { label: 'Delinquency',      score: del.score, level: del.probabilityBand, pctile: del.nationalPercentile },
-          { label: 'Failure',          score: fail.score, level: fail.riskLevel, pctile: fail.nationalPercentile },
-        ].map(({ label, score, level, pctile }) => (
-          <div key={label} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-            <span className="text-xs text-gray-600">{label}</span>
-            <div className="flex items-center gap-2">
-              <span className="text-xs tabular-nums text-gray-500">{score}</span>
-              <RiskBadge level={level} />
-              <span className="text-xs text-gray-400 w-14 text-right">{pctile}th %ile</span>
+      {/* Score breakdown */}
+      <div>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Score Breakdown</p>
+        <div className="flex flex-col gap-3">
+          {breakdown.map(({ label, weight, raw, norm, sub, delta, deltaGood }) => (
+            <div key={label} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-700 flex-1">{label}</span>
+                <span className="text-xs text-gray-400">{weight}</span>
+                <span className="text-xs tabular-nums text-gray-500 font-mono">{raw}</span>
+              </div>
+              <ScoreBar norm={norm} />
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 italic truncate">{sub}</span>
+                {delta && (
+                  <span className={`text-xs ml-auto shrink-0 ${deltaGood ? 'text-green-600' : 'text-red-500'}`}>
+                    {delta}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* DBT */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Days Beyond Terms</p>
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl font-bold text-gray-900">{dbt.value}d</span>
-            <span className={`text-xs font-medium ${dbtDelta <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {dbtDelta <= 0 ? '▼' : '▲'} {Math.abs(dbtDelta)}d vs industry ({dbt.industryMedian}d)
-            </span>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-400">D&B Rating</p>
-          <p className="text-lg font-bold text-gray-900">{dnbRating.raw}</p>
-          <p className="text-xs text-gray-500">{dnbRating.description}</p>
+          ))}
         </div>
       </div>
 
       {/* Tradelines */}
       <div>
-        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Tradelines</p>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Tradelines</p>
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: 'Total',    value: tradelines.totalExperiences, color: 'text-gray-900' },
-            { label: 'Satisf.',  value: tradelines.satisfactoryCount, color: 'text-green-600' },
+            { label: 'Total',    value: tradelines.totalExperiences,  color: 'text-gray-900'   },
+            { label: 'Satisf.',  value: tradelines.satisfactoryCount, color: 'text-green-600'  },
             { label: 'Slow',     value: tradelines.slowCount,         color: 'text-yellow-600' },
-            { label: 'Negative', value: tradelines.negativeCount,     color: 'text-red-600' },
+            { label: 'Negative', value: tradelines.negativeCount,     color: 'text-red-600'    },
           ].map(({ label, value, color }) => (
             <div key={label} className="text-center bg-gray-50 rounded-lg py-2">
               <p className={`text-lg font-bold ${color}`}>{value}</p>
@@ -261,7 +315,7 @@ function DnBBureauCard({ dnbData }) {
       {/* Alerts */}
       {alerts?.length > 0 && (
         <div>
-          <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Alerts</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Alerts</p>
           <ul className="flex flex-col gap-1.5">
             {alerts.map((alert, i) => (
               <li key={i} className="flex items-start gap-1.5 text-xs text-orange-700 bg-orange-50 rounded-lg px-3 py-2">
@@ -273,7 +327,6 @@ function DnBBureauCard({ dnbData }) {
         </div>
       )}
 
-      {/* Footer */}
       <p className="text-xs text-gray-400 border-t border-gray-100 pt-3 mt-auto">
         D&B Report Date: {reportDate}
       </p>
@@ -806,8 +859,8 @@ export default function CustomerDetailPage() {
   const ratingColor = RATING_COLORS[rating] ?? '#6b7280';
 
   return (
-    <main className="flex-1 p-8 min-w-0">
-      <div className="max-w-6xl mx-auto flex flex-col gap-6">
+    <main className="flex-1 p-6 min-w-0">
+      <div className="flex flex-col gap-6">
 
         {/* Back button */}
         <button

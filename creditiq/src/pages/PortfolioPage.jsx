@@ -416,8 +416,8 @@ export default function PortfolioPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <main className="flex-1 p-8 min-w-0">
-      <div className="max-w-screen-xl mx-auto">
+    <main className="flex-1 p-6 min-w-0">
+      <div>
 
         {/* Page header */}
         <div className="mb-6">
