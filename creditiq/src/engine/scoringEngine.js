@@ -245,6 +245,14 @@ export function scoreDnB(dnbData) {
   );
 }
 
+/**
+ * sentimentData: result from analyzeSentiment()
+ */
+export function scoreSentiment(sentimentData) {
+  if (!sentimentData || sentimentData.error || sentimentData.score == null) return null;
+  return Math.min(100, Math.max(0, Number(sentimentData.score)));
+}
+
 // ─── Rating bands ─────────────────────────────────────────────────────────────
 
 export function getRating(score) {
@@ -257,47 +265,47 @@ export function getRating(score) {
 // ─── Base dimension weights ───────────────────────────────────────────────────
 
 const BASE_WEIGHTS = {
-  payment:  0.25,
-  financial: 0.20,
-  exposure: 0.15,
-  tenure:   0.10,
-  external: 0.10,
-  dnb:      0.20,
+  payment:   0.23,
+  financial: 0.18,
+  exposure:  0.13,
+  tenure:    0.09,
+  external:  0.09,
+  dnb:       0.18,
+  sentiment: 0.10,
 };
 
 // ─── Final scorer ─────────────────────────────────────────────────────────────
 
 /**
- * @param {object} customer      - Full customer record (financial + profile fields)
- * @param {object} aging         - Aging/receivables snapshot for this customer
- * @param {object|null} dnbData  - D&B record from mockDnBAPI, or null if unavailable
+ * @param {object} customer       - Full customer record (financial + profile fields)
+ * @param {object} aging          - Aging/receivables snapshot for this customer
+ * @param {object|null} dnbData   - D&B record from mockDnBAPI, or null if unavailable
+ * @param {object|null} sentimentData - Result from analyzeSentiment(), or null
  * @param {number} totalPortfolioOutstanding - Sum of outstanding across all customers
  * @returns {{ finalScore, rating, dimensions, flags }}
  */
-export function calculateFinalScore(customer, aging, dnbData, totalPortfolioOutstanding) {
+export function calculateFinalScore(customer, aging, dnbData, sentimentData, totalPortfolioOutstanding) {
   const dimensions = {
-    payment:  scorePaymentBehavior(aging),
+    payment:   scorePaymentBehavior(aging),
     financial: scoreFinancialHealth(customer),
-    exposure: scoreExposure(aging, totalPortfolioOutstanding),
-    tenure:   scoreTenure(customer),
-    external: scoreExternalRisk(customer),
-    dnb:      dnbData ? scoreDnB(dnbData) : null,
+    exposure:  scoreExposure(aging, totalPortfolioOutstanding),
+    tenure:    scoreTenure(customer),
+    external:  scoreExternalRisk(customer),
+    dnb:       dnbData ? scoreDnB(dnbData) : null,
+    sentiment: scoreSentiment(sentimentData),
   };
 
-  // If no D&B data, redistribute its 20% equally across the other five dimensions
-  let weights;
-  if (dnbData === null) {
-    const bonus = BASE_WEIGHTS.dnb / 5;
-    weights = {
-      payment:  BASE_WEIGHTS.payment   + bonus,
-      financial: BASE_WEIGHTS.financial + bonus,
-      exposure: BASE_WEIGHTS.exposure  + bonus,
-      tenure:   BASE_WEIGHTS.tenure    + bonus,
-      external: BASE_WEIGHTS.external  + bonus,
-      dnb:      0,
-    };
-  } else {
-    weights = { ...BASE_WEIGHTS };
+  // Redistribute weight from any missing dimension evenly across active ones
+  let weights = { ...BASE_WEIGHTS };
+  let missingWeight = 0;
+  if (dnbData === null) { missingWeight += weights.dnb; weights.dnb = 0; }
+  if (!sentimentData || sentimentData.error || sentimentData.score == null) {
+    missingWeight += weights.sentiment; weights.sentiment = 0;
+  }
+  if (missingWeight > 0) {
+    const activeDims = Object.keys(weights).filter((k) => weights[k] > 0);
+    const bonus = missingWeight / activeDims.length;
+    for (const k of activeDims) weights[k] += bonus;
   }
 
   let finalScore = 0;

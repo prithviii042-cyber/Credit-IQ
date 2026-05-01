@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Papa from 'papaparse';
 import { mockDnBAPI } from '../data/dnbMockData';
 import { calculateFinalScore } from '../engine/scoringEngine';
+import { analyzeSentiment } from '../engine/sentimentAnalyzer';
 import { useApp } from '../context/AppContext';
 
 // ─── Column schemas ───────────────────────────────────────────────────────────
@@ -325,20 +326,45 @@ export default function UploadPage() {
 
     const totalOutstanding = merged.reduce((sum, r) => sum + (Number(r.outstanding) || 0), 0);
 
-    // 2. Sequentially fetch D&B + score
-    const results = [];
+    // 2. Sequentially fetch D&B data
+    const dnbResults = [];
     for (let i = 0; i < merged.length; i++) {
-      const row = merged[i];
-
       setPipeline({
         status: 'fetching',
         progress: i,
         total: merged.length,
         message: `Fetching D&B data… ${i + 1} / ${merged.length}`,
       });
+      const dnbResult = await mockDnBAPI(merged[i].customer_id);
+      dnbResults.push(dnbResult.error ? null : dnbResult.data);
+    }
 
-      const dnbResult = await mockDnBAPI(row.customer_id);
-      const dnbData = dnbResult.error ? null : dnbResult.data;
+    // 3. Sentiment analysis in batches of 5
+    const BATCH = 5;
+    const sentimentResults = new Array(merged.length).fill(null);
+    for (let i = 0; i < merged.length; i += BATCH) {
+      setPipeline({
+        status: 'sentiment',
+        progress: i,
+        total: merged.length,
+        message: `Analyzing news sentiment… ${Math.min(i + BATCH, merged.length)} / ${merged.length}`,
+      });
+      const batch = merged.slice(i, i + BATCH).map((row, j) => ({ ...row, dnbData: dnbResults[i + j] }));
+      const batchSentiments = await Promise.all(batch.map((r) => analyzeSentiment(r)));
+      batchSentiments.forEach((s, j) => { sentimentResults[i + j] = s; });
+    }
+
+    // 4. Calculate final scores
+    setPipeline({
+      status: 'scoring',
+      progress: merged.length,
+      total: merged.length,
+      message: 'Calculating final scores…',
+    });
+
+    const results = merged.map((row, i) => {
+      const dnbData = dnbResults[i];
+      const sentimentData = sentimentResults[i];
 
       const customerObj = {
         revenue_cr:   Number(row.revenue_cr)   || 0,
@@ -361,17 +387,18 @@ export default function UploadPage() {
         bucket_120plus: Number(row.bucket_120plus) || 0,
       };
 
-      const scored = calculateFinalScore(customerObj, agingObj, dnbData, totalOutstanding);
+      const scored = calculateFinalScore(customerObj, agingObj, dnbData, sentimentData, totalOutstanding);
 
-      results.push({
+      return {
         customer_id:  row.customer_id,
         company_name: String(row.company_name || dnbData?.companyName || row.customer_id),
         ...customerObj,
         ...agingObj,
         dnbData,
+        sentimentData,
         ...scored,
-      });
-    }
+      };
+    });
 
     setPipeline({
       status: 'done',
