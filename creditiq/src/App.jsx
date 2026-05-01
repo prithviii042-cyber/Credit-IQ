@@ -3,7 +3,7 @@ import { AppProvider } from './context/AppContext';
 import Navbar from './components/Navbar';
 import UploadPage from './pages/UploadPage';
 import PortfolioPage from './pages/PortfolioPage';
-import CustomerDetail from './pages/CustomerDetail';
+import CustomerDetailPage from './pages/CustomerDetailPage';
 
 export default function App() {
   return (
@@ -15,7 +15,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/upload" replace />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/portfolio" element={<PortfolioPage />} />
-            <Route path="/customer/:id" element={<CustomerDetail />} />
+            <Route path="/customer/:id" element={<CustomerDetailPage />} />
           </Routes>
         </div>
       </BrowserRouter>
