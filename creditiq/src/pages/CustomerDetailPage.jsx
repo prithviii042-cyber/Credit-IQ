@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { useApp } from '../context/AppContext';
 import { generateCreditMemo } from '../engine/creditMemoGenerator';
-import { fmtInr } from '../utils/format';
+import { fmtInr, fmtCompact } from '../utils/format';
 import {
   normalizePaydex, normalizeFSS, normalizeDelinquency,
   normalizeFailure, normalizeDBT, normalizeDnBRating,
@@ -861,7 +861,6 @@ export default function CustomerDetailPage() {
   }
 
   const { rating, finalScore, dimensions, flags, dnbData, sentimentData } = customer;
-  const ratingColor = RATING_COLORS[rating] ?? '#6b7280';
 
   return (
     <main className="flex-1 p-6 min-w-0">
@@ -930,26 +929,21 @@ export default function CustomerDetailPage() {
               </div>
 
               {/* Financial KPIs strip */}
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 pt-4 border-t border-gray-100">
+              <div className="flex divide-x divide-gray-100 pt-4 border-t border-gray-100">
                 {[
-                  { label: 'Revenue',      value: `₹${customer.revenue_cr}Cr`,
-                    sub: null },
-                  { label: 'EBITDA Margin',value: `${customer.ebitda_pct}%`,
-                    bad: customer.ebitda_pct < 0 },
-                  { label: 'Debt / Equity',value: `${customer.debt_equity}x`,
-                    bad: customer.debt_equity > 2 },
-                  { label: 'DSO',          value: `${customer.dso}d`,
-                    bad: customer.dso > 90 },
-                  { label: 'Outstanding',  value: fmtInr(customer.outstanding),
-                    sub: null },
-                  { label: 'Utilization',  value: customer.credit_limit > 0
+                  { label: 'Revenue',       value: `₹${customer.revenue_cr} Cr`,          bad: false },
+                  { label: 'EBITDA Margin', value: `${customer.ebitda_pct}%`,             bad: customer.ebitda_pct < 0 },
+                  { label: 'Debt / Equity', value: `${customer.debt_equity}×`,            bad: customer.debt_equity > 2 },
+                  { label: 'DSO',           value: `${customer.dso} days`,                bad: customer.dso > 90 },
+                  { label: 'Outstanding',   value: fmtCompact(customer.outstanding),      bad: false },
+                  { label: 'Utilization',   value: customer.credit_limit > 0
                       ? `${((customer.outstanding / customer.credit_limit) * 100).toFixed(0)}%`
                       : '—',
                     bad: customer.credit_limit > 0 && customer.outstanding > customer.credit_limit * 0.9 },
                 ].map(({ label, value, bad }) => (
-                  <div key={label} className="bg-gray-50 rounded-lg px-3 py-2.5">
-                    <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-                    <p className={`text-sm font-bold tabular-nums ${bad ? 'text-red-600' : 'text-gray-900'}`}>
+                  <div key={label} className="flex-1 px-5 first:pl-0 last:pr-0">
+                    <p className="text-xs text-gray-400 mb-1 whitespace-nowrap">{label}</p>
+                    <p className={`text-lg font-bold tabular-nums leading-none ${bad ? 'text-red-600' : 'text-gray-900'}`}>
                       {value}
                     </p>
                   </div>
