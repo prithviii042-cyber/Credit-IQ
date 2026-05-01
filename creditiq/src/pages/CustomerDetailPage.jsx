@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { useApp } from '../context/AppContext';
 import { generateCreditMemo } from '../engine/creditMemoGenerator';
+import { fmtInr } from '../utils/format';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -300,7 +301,7 @@ function AgingBarChart({ customer }) {
     b120plus: customer.bucket_120plus || 0,
   }];
 
-  const tooltipFormatter = (v) => [fmtLac(v)];
+  const tooltipFormatter = (v) => [fmtInr(v)];
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -314,7 +315,7 @@ function AgingBarChart({ customer }) {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
           <YAxis
-            tickFormatter={(v) => `₹${(v / 100_000).toFixed(0)}L`}
+            tickFormatter={(v) => fmtInr(v)}
             axisLine={false}
             tickLine={false}
             tick={{ fontSize: 11, fill: '#9ca3af' }}
@@ -347,6 +348,94 @@ function AgingBarChart({ customer }) {
           ))}
         </BarChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── PeerComparison ───────────────────────────────────────────────────────────
+
+function PeerComparison({ customer, portfolio }) {
+  const { dso, finalScore, dnbData } = customer;
+  const myPaydex = dnbData?.paydex?.score ?? null;
+
+  const n = portfolio.length;
+  if (n === 0) return null;
+
+  const avgDso   = portfolio.reduce((s, c) => s + (c.dso || 0), 0) / n;
+  const avgScore = portfolio.reduce((s, c) => s + (c.finalScore || 0), 0) / n;
+
+  const paydexPeers = portfolio.filter((c) => c.dnbData?.paydex?.score != null);
+  const avgPaydex   = paydexPeers.length
+    ? paydexPeers.reduce((s, c) => s + c.dnbData.paydex.score, 0) / paydexPeers.length
+    : null;
+
+  const metrics = [
+    {
+      label:          'Days Sales Outstanding',
+      unit:           'd',
+      mine:           dso,
+      avg:            avgDso,
+      lowerIsBetter:  true,
+      fmt:            (v) => `${Math.round(v)}`,
+    },
+    {
+      label:          'PAYDEX Score',
+      unit:           '',
+      mine:           myPaydex,
+      avg:            avgPaydex,
+      lowerIsBetter:  false,
+      fmt:            (v) => `${Math.round(v)}`,
+    },
+    {
+      label:          'Credit Score',
+      unit:           '/100',
+      mine:           finalScore,
+      avg:            avgScore,
+      lowerIsBetter:  false,
+      fmt:            (v) => v.toFixed(1),
+    },
+  ];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-gray-900 mb-4">
+        Peer Comparison
+        <span className="text-xs font-normal text-gray-400 ml-2">vs. portfolio average ({n} customers)</span>
+      </h3>
+      <div className="grid grid-cols-3 gap-4">
+        {metrics.map(({ label, unit, mine, avg, lowerIsBetter, fmt }) => {
+          if (mine == null || avg == null) {
+            return (
+              <div key={label} className="rounded-xl bg-gray-50 p-4 text-center">
+                <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">{label}</p>
+                <p className="text-sm text-gray-400">No data</p>
+              </div>
+            );
+          }
+
+          const diff      = mine - avg;
+          const isGood    = lowerIsBetter ? diff <= 0 : diff >= 0;
+          const diffAbs   = Math.abs(diff);
+          const arrowUp   = diff > 0;
+          const diffLabel = `${arrowUp ? '+' : '−'}${diffAbs < 1 ? diffAbs.toFixed(1) : Math.round(diffAbs)}`;
+
+          return (
+            <div key={label} className="rounded-xl bg-gray-50 p-4 text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">{label}</p>
+              <p className="text-2xl font-bold text-gray-900 tabular-nums">
+                {fmt(mine)}<span className="text-sm font-medium text-gray-500">{unit}</span>
+              </p>
+              <div className={`flex items-center justify-center gap-1 mt-1.5 text-xs font-semibold ${isGood ? 'text-green-600' : 'text-red-600'}`}>
+                <span>{arrowUp ? '▲' : '▼'}</span>
+                <span>{diffLabel} vs avg</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Avg: {fmt(avg)}{unit}
+              </p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -692,6 +781,9 @@ export default function CustomerDetailPage() {
           <DimensionScoreCard dimensions={dimensions} />
           <DnBBureauCard dnbData={dnbData} />
         </div>
+
+        {/* ── SECTION 2.5: Peer Comparison ─────────────────────────────────── */}
+        <PeerComparison customer={customer} portfolio={portfolio} />
 
         {/* ── SECTION 3: Aging Chart + AI Memo ─────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

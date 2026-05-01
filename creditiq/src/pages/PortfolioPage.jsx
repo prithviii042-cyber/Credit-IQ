@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis } from 'recharts';
+import {
+  BarChart, Bar, XAxis, YAxis,
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import { useApp } from '../context/AppContext';
+import { fmtInr, fmtCompact } from '../utils/format';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -30,14 +34,11 @@ const AGING_LEGEND = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatLac(n) {
-  const lac = n / 100_000;
-  if (lac >= 10_000) return `₹${(lac / 100).toFixed(1)}Cr`;
-  return `₹${lac.toFixed(1)}L`;
-}
+const _inrNum = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 });
 
 function fmtNum(n) {
-  return (n / 100_000).toFixed(1);
+  // Shows value in Lacs with Indian number grouping: e.g. 1,200.5
+  return _inrNum.format(+(n / 1_00_000).toFixed(1));
 }
 
 function utilColor(pct) {
@@ -58,6 +59,186 @@ function ovdColor(pct) {
   if (pct > 50) return 'text-red-600 font-medium';
   if (pct > 25) return 'text-orange-500';
   return 'text-gray-600';
+}
+
+// ─── Export CSV ───────────────────────────────────────────────────────────────
+
+function exportCsv(rows) {
+  const headers = [
+    'customer_id', 'company_name', 'industry', 'city_tier', 'tenure_years',
+    'revenue_cr', 'ebitda_pct', 'debt_equity',
+    'credit_limit', 'outstanding', 'utilization_pct',
+    'dso', 'overdue_pct',
+    'bucket_30', 'bucket_60', 'bucket_90', 'bucket_90plus', 'bucket_120plus',
+    'final_score', 'rating', 'flags',
+    'dim_payment', 'dim_financial', 'dim_exposure', 'dim_tenure', 'dim_external', 'dim_dnb',
+    'paydex',
+  ];
+
+  const esc = (v) => {
+    const s = v == null ? '' : String(v);
+    return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const lines = [
+    headers.join(','),
+    ...rows.map((c) => {
+      const util = c.credit_limit > 0
+        ? ((c.outstanding / c.credit_limit) * 100).toFixed(1) : '';
+      return [
+        c.customer_id, c.company_name, c.industry, c.city_tier, c.tenure_years,
+        c.revenue_cr, c.ebitda_pct, c.debt_equity,
+        c.credit_limit, c.outstanding, util,
+        c.dso, c.overdue_pct,
+        c.bucket_30 ?? 0, c.bucket_60 ?? 0, c.bucket_90 ?? 0,
+        c.bucket_90plus ?? 0, c.bucket_120plus ?? 0,
+        c.finalScore?.toFixed(2) ?? '', c.rating,
+        (c.flags ?? []).join(';'),
+        c.dimensions?.payment?.toFixed(2)  ?? '',
+        c.dimensions?.financial?.toFixed(2) ?? '',
+        c.dimensions?.exposure?.toFixed(2)  ?? '',
+        c.dimensions?.tenure?.toFixed(2)    ?? '',
+        c.dimensions?.external?.toFixed(2)  ?? '',
+        c.dimensions?.dnb != null ? c.dimensions.dnb.toFixed(2) : '',
+        c.dnbData?.paydex?.score ?? '',
+      ].map(esc).join(',');
+    }),
+  ];
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `creditiq_export_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ─── Risk Summary Panel ───────────────────────────────────────────────────────
+
+const RATING_FILL = { A: '#16a34a', B: '#ca8a04', C: '#ea580c', D: '#dc2626' };
+const RATING_LABELS = { A: 'Low Risk', B: 'Moderate', C: 'High Risk', D: 'Very High' };
+
+function RiskSummaryPanel({ rows }) {
+  const byRating = useMemo(() => {
+    const acc = { A: { count: 0, outstanding: 0 }, B: { count: 0, outstanding: 0 }, C: { count: 0, outstanding: 0 }, D: { count: 0, outstanding: 0 } };
+    rows.forEach((c) => {
+      if (acc[c.rating]) {
+        acc[c.rating].count++;
+        acc[c.rating].outstanding += c.outstanding || 0;
+      }
+    });
+    return acc;
+  }, [rows]);
+
+  const pieData = ['A', 'B', 'C', 'D']
+    .filter((r) => byRating[r].count > 0)
+    .map((r) => ({ name: r, value: byRating[r].count }));
+
+  const barData = ['A', 'B', 'C', 'D'].map((r) => ({
+    rating: r,
+    outstanding: +(byRating[r].outstanding / 1_00_000).toFixed(1),
+  }));
+
+  const pieTooltip = ({ active, payload }) => {
+    if (!active || !payload?.[0]) return null;
+    const { name, value } = payload[0];
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs shadow-sm">
+        <span className="font-semibold" style={{ color: RATING_FILL[name] }}>Rating {name}</span>
+        <span className="text-gray-600 ml-2">{value} customer{value !== 1 ? 's' : ''}</span>
+      </div>
+    );
+  };
+
+  const barTooltip = ({ active, payload }) => {
+    if (!active || !payload?.[0]) return null;
+    const { rating, outstanding } = payload[0].payload;
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs shadow-sm">
+        <span className="font-semibold" style={{ color: RATING_FILL[rating] }}>Rating {rating}</span>
+        <span className="text-gray-600 ml-2">{fmtInr(outstanding * 1_00_000)} ({outstanding}L)</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="mt-6 bg-white border border-gray-200 rounded-xl p-5">
+      <h2 className="text-sm font-semibold text-gray-900 mb-4">Risk Summary</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        {/* Donut: customers by rating */}
+        <div>
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">Customers by Rating</p>
+          <div className="flex items-center gap-4">
+            <ResponsiveContainer width={160} height={160}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={42}
+                  outerRadius={68}
+                  dataKey="value"
+                  startAngle={90}
+                  endAngle={-270}
+                  isAnimationActive={false}
+                >
+                  {pieData.map(({ name }) => (
+                    <Cell key={name} fill={RATING_FILL[name]} stroke="none" />
+                  ))}
+                </Pie>
+                <Tooltip content={pieTooltip} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex flex-col gap-2">
+              {['A', 'B', 'C', 'D'].map((r) => {
+                const { count } = byRating[r];
+                const pct = rows.length ? ((count / rows.length) * 100).toFixed(0) : 0;
+                return (
+                  <div key={r} className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: RATING_FILL[r] }} />
+                    <span className="text-xs font-medium text-gray-700 w-4">{r}</span>
+                    <span className="text-xs text-gray-500">{count} <span className="text-gray-400">({pct}%)</span></span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Bar: outstanding by rating */}
+        <div>
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-1">Outstanding by Rating (₹L)</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={barData} margin={{ top: 8, right: 8, bottom: 0, left: -10 }} barSize={32}>
+              <XAxis
+                dataKey="rating"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 12, fontWeight: 600 }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                tickFormatter={(v) => v > 0 ? `${v}L` : '0'}
+              />
+              <Tooltip content={barTooltip} />
+              <Bar dataKey="outstanding" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                {barData.map(({ rating }) => (
+                  <Cell key={rating} fill={RATING_FILL[rating]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+      </div>
+    </div>
+  );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -244,7 +425,7 @@ export default function PortfolioPage() {
           />
           <SummaryCard
             label="Total Outstanding"
-            value={formatLac(totalOutstanding)}
+            value={fmtCompact(totalOutstanding)}
             sub="across all borrowers"
           />
           <SummaryCard
@@ -335,6 +516,17 @@ export default function PortfolioPage() {
           <span className="text-xs text-gray-400 ml-auto tabular-nums">
             {rows.length} / {portfolio.length}
           </span>
+
+          <button
+            onClick={() => exportCsv(rows)}
+            title="Export current view as CSV"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:text-gray-800 transition-colors whitespace-nowrap"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Export CSV
+          </button>
         </div>
 
         {/* Table */}
@@ -482,6 +674,9 @@ export default function PortfolioPage() {
             </div>
           ))}
         </div>
+
+        {/* Risk Summary */}
+        <RiskSummaryPanel rows={rows} />
 
       </div>
     </main>
