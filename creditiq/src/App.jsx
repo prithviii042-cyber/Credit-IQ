@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import Navbar from './components/Navbar';
 import UploadPage from './pages/UploadPage';
-import Portfolio from './pages/Portfolio';
+import PortfolioPage from './pages/PortfolioPage';
 import CustomerDetail from './pages/CustomerDetail';
 
 export default function App() {
@@ -14,7 +14,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/upload" replace />} />
             <Route path="/upload" element={<UploadPage />} />
-            <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="/portfolio" element={<PortfolioPage />} />
             <Route path="/customer/:id" element={<CustomerDetail />} />
           </Routes>
         </div>
