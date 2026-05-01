@@ -5,6 +5,7 @@ import {
   Legend, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
 import { useApp } from '../context/AppContext';
+import { generateCreditMemo } from '../engine/creditMemoGenerator';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -41,62 +42,6 @@ const fmtLac   = (n) => `₹${(n / 100_000).toFixed(1)}L`;
 const fmtCr    = (n) => (n / 100_000) >= 10_000
   ? `₹${(n / 10_000_000).toFixed(1)} Cr`
   : fmtLac(n);
-
-function buildPrompt(c) {
-  const bucketSum = (c.bucket_30 || 0) + (c.bucket_60 || 0) + (c.bucket_90 || 0)
-    + (c.bucket_90plus || 0) + (c.bucket_120plus || 0);
-  const current = Math.max(0, (c.outstanding || 0) - bucketSum);
-  const util    = c.credit_limit > 0
-    ? ((c.outstanding / c.credit_limit) * 100).toFixed(1)
-    : 'N/A';
-  const d = c.dnbData;
-
-  return `You are a senior credit analyst. Write a concise credit memo for this customer.
-
-CUSTOMER: ${c.company_name} (${c.customer_id})
-Industry: ${c.industry} | City Tier: ${c.city_tier} | Tenure: ${c.tenure_years} years
-
-FINANCIALS:
-Revenue: ₹${c.revenue_cr} Cr | EBITDA: ${c.ebitda_pct}% | Debt/Equity: ${c.debt_equity}
-
-RECEIVABLES:
-Outstanding: ${fmtLac(c.outstanding)} | Limit: ${fmtLac(c.credit_limit)} | Utilization: ${util}%
-DSO: ${c.dso}d | Overdue: ${c.overdue_pct}%
-Aging: Current ${fmtLac(current)} | 30d ${fmtLac(c.bucket_30 || 0)} | 60d ${fmtLac(c.bucket_60 || 0)} | 90d ${fmtLac(c.bucket_90 || 0)} | 90d+ ${fmtLac((c.bucket_90plus || 0) + (c.bucket_120plus || 0))}
-
-CREDIT SCORE: ${c.finalScore}/100 (Rating: ${c.rating})
-Dimensions — Payment: ${c.dimensions?.payment?.toFixed(1)}/100 | Financial: ${c.dimensions?.financial?.toFixed(1)}/100 | Exposure: ${c.dimensions?.exposure?.toFixed(1)}/100 | Tenure: ${c.dimensions?.tenure?.toFixed(1)}/100 | External: ${c.dimensions?.external?.toFixed(1)}/100 | D&B: ${c.dimensions?.dnb != null ? c.dimensions.dnb.toFixed(1) : 'N/A'}/100
-Active Flags: ${c.flags?.length ? c.flags.join(', ') : 'None'}
-
-${d ? `D&B BUREAU:
-PAYDEX: ${d.paydex?.score} (Median: ${d.paydex?.industryMedian}) | ${d.paydex?.paymentBehavior}
-Financial Stress: ${d.financialStressScore?.score} | ${d.financialStressScore?.riskLevel} | ${d.financialStressScore?.nationalPercentile}th pctile
-Delinquency: ${d.delinquencyScore?.score} | ${d.delinquencyScore?.probabilityBand} | ${d.delinquencyScore?.nationalPercentile}th pctile
-Failure: ${d.failureScore?.score} | ${d.failureScore?.riskLevel} | ${d.failureScore?.nationalPercentile}th pctile
-DBT: ${d.dbt?.value}d (Industry: ${d.dbt?.industryMedian}d)
-D&B Rating: ${d.dnbRating?.raw} (${d.dnbRating?.description})
-Tradelines: ${d.tradelines?.totalExperiences} total | ${d.tradelines?.satisfactoryCount} satisfactory | ${d.tradelines?.slowCount} slow | ${d.tradelines?.negativeCount} negative
-Alerts: ${d.alerts?.length ? d.alerts.join('; ') : 'None'}` : 'D&B data: Not available'}
-
-Respond ONLY with valid JSON (no markdown, no explanation):
-{
-  "riskSummary": "<2-3 sentences overall risk assessment>",
-  "keyConcerns": ["<concern 1>", "<concern 2>", "<concern 3>"],
-  "creditTeamActions": ["<action 1>", "<action 2>", "<action 3>"],
-  "collectionsTeamActions": ["<action 1>", "<action 2>"],
-  "recommendedCreditLimit": <integer in rupees>
-}`;
-}
-
-function parseMemo(text) {
-  try {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON found');
-    return JSON.parse(jsonMatch[0]);
-  } catch {
-    return null;
-  }
-}
 
 // ─── ScoreGauge ───────────────────────────────────────────────────────────────
 
@@ -413,51 +358,30 @@ function AiMemoPanel({ customer }) {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
 
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  const hasApiKey = !!import.meta.env.VITE_ANTHROPIC_API_KEY;
 
   const generate = async () => {
     setLoading(true);
     setError(null);
     setMemo(null);
 
-    try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type':                         'application/json',
-          'x-api-key':                            apiKey,
-          'anthropic-version':                    '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1024,
-          system: 'You are a senior credit analyst at a commercial bank. You write clear, concise credit memos based on quantitative data. Always respond with valid JSON only — no markdown fences, no preamble.',
-          messages: [{ role: 'user', content: buildPrompt(customer) }],
-        }),
-      });
+    const { finalScore, rating, dimensions, flags, dnbData, ...rest } = customer;
+    const scores = { finalScore, rating, dimensions, flags };
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error?.message ?? `API error ${res.status}`);
-      }
+    const result = await generateCreditMemo(rest, rest, scores, dnbData ?? null);
 
-      const data   = await res.json();
-      const text   = data.content?.[0]?.text ?? '';
-      const parsed = parseMemo(text);
-
-      if (!parsed) throw new Error('Could not parse response. Raw: ' + text.slice(0, 120));
-      setMemo(parsed);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
+    if (result.error) {
+      setError(result.riskSummary);
+    } else {
+      setMemo(result);
     }
+    setLoading(false);
   };
 
   const copyMemo = () => {
     if (!memo) return;
-    const text = [
+    const limitLacs = memo.recommendedCreditLimit;
+    const lines = [
       `CREDIT MEMO — ${customer.company_name}`,
       '',
       'RISK SUMMARY',
@@ -472,9 +396,11 @@ function AiMemoPanel({ customer }) {
       'COLLECTIONS TEAM ACTIONS',
       ...memo.collectionsTeamActions.map((a) => `• ${a}`),
       '',
-      `RECOMMENDED CREDIT LIMIT: ${fmtCr(memo.recommendedCreditLimit)}`,
-    ].join('\n');
-    navigator.clipboard.writeText(text);
+      `RECOMMENDED CREDIT LIMIT: ₹${limitLacs}L`,
+      memo.limitRationale ? `RATIONALE: ${memo.limitRationale}` : '',
+      memo.reviewDate ? `NEXT REVIEW: ${memo.reviewDate}` : '',
+    ].filter(Boolean);
+    navigator.clipboard.writeText(lines.join('\n'));
   };
 
   return (
@@ -495,12 +421,13 @@ function AiMemoPanel({ customer }) {
         )}
       </div>
 
-      {/* Generate button */}
+      {/* Generate / no-key state */}
       {!loading && !memo && (
         <>
-          {!apiKey ? (
+          {!hasApiKey ? (
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-700">
-              Set <code className="font-mono bg-amber-100 px-1 rounded">VITE_ANTHROPIC_API_KEY</code> in <code className="font-mono bg-amber-100 px-1 rounded">.env.local</code> to enable AI memos.
+              Set <code className="font-mono bg-amber-100 px-1 rounded">VITE_ANTHROPIC_API_KEY</code> in{' '}
+              <code className="font-mono bg-amber-100 px-1 rounded">.env.local</code> to enable AI memos.
             </div>
           ) : (
             <button
@@ -590,22 +517,43 @@ function AiMemoPanel({ customer }) {
 
           {/* Recommended Credit Limit callout */}
           {memo.recommendedCreditLimit != null && (
-            <div className="rounded-xl border-2 p-4 text-center mt-1" style={{ borderColor: '#1D4ED8', backgroundColor: '#eff6ff' }}>
-              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">
-                Recommended Credit Limit
-              </p>
-              <p className="text-3xl font-bold" style={{ color: '#1D4ED8' }}>
-                {fmtCr(memo.recommendedCreditLimit)}
-              </p>
-              {memo.recommendedCreditLimit !== customer.credit_limit && (
-                <p className="text-xs text-blue-500 mt-1">
-                  Current: {fmtLac(customer.credit_limit)}
-                  {' '}
-                  ({memo.recommendedCreditLimit > customer.credit_limit ? '▲' : '▼'}
-                  {' '}
-                  {fmtCr(Math.abs(memo.recommendedCreditLimit - customer.credit_limit))})
+            <div className="rounded-xl border-2 p-4 mt-1" style={{ borderColor: '#1D4ED8', backgroundColor: '#eff6ff' }}>
+              <div className="text-center">
+                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">
+                  Recommended Credit Limit
+                </p>
+                <p className="text-3xl font-bold" style={{ color: '#1D4ED8' }}>
+                  ₹{memo.recommendedCreditLimit}L
+                </p>
+                {(() => {
+                  const recRaw     = memo.recommendedCreditLimit * 100_000;
+                  const currentRaw = customer.credit_limit;
+                  if (recRaw === currentRaw) return null;
+                  const diffL = Math.abs(memo.recommendedCreditLimit - currentRaw / 100_000).toFixed(0);
+                  return (
+                    <p className="text-xs text-blue-500 mt-1">
+                      Current: {fmtLac(currentRaw)}
+                      {' '}
+                      ({recRaw > currentRaw ? '▲' : '▼'} ₹{diffL}L)
+                    </p>
+                  );
+                })()}
+              </div>
+              {memo.limitRationale && (
+                <p className="text-xs text-blue-700 mt-3 leading-relaxed border-t border-blue-200 pt-3">
+                  {memo.limitRationale}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Review Date */}
+          {memo.reviewDate && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+              <span>Next review: <span className="font-medium text-gray-700">{memo.reviewDate}</span></span>
             </div>
           )}
 
